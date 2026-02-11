@@ -62,49 +62,43 @@ class InvoiceService:
             if it.fragile:
                 fragile_fee += 5.0 * it.qty
 
-        shipping = 0.0
-        if inv.country == "TH":
-            if subtotal < 500:
-                shipping = 60
-        elif inv.country == "JP":
-            if subtotal < 4000:
-                shipping = 600
-        elif inv.country == "US":
-            if subtotal < 100:
-                shipping = 15
-            elif subtotal < 300:
-                shipping = 8
-        else:
-            if subtotal < 200:
-                shipping = 25
-            else:
-                shipping = 0
-
         discount = 0.0
         if inv.membership == "gold":
             discount += subtotal * 0.03
         elif inv.membership == "platinum":
             discount += subtotal * 0.05
-        else:
-            if subtotal > 3000:
-                discount += 20
+        elif subtotal > 3000:
+            discount += 20
 
-        if inv.coupon is not None and inv.coupon.strip() != "":
-            code = inv.coupon.strip()
-            if code in self._coupon_rate:
-                discount += subtotal * self._coupon_rate[code]
-            else:
-                warnings.append("Unknown coupon")
+        code = inv.coupon.strip()
+        if inv.coupon is not None and code != "" and code in self._coupon_rate:
+            discount += subtotal * self._coupon_rate[code]
+        elif (inv.coupon is not None and code != "") or code not in self._coupon_rate:
+            warnings.append("Unknown coupon")
 
+        
+        shipping = 0.0
         tax = (subtotal - discount)
+        if inv.country == "TH" and subtotal < 500:
+            shipping = 60
+        elif inv.country == "JP" and subtotal < 4000:
+            shipping = 600
+        elif inv.country == "US" and subtotal < 100:
+            shipping = 15
+        elif inv.country == "US" and subtotal < 300:
+            shipping = 8
+        elif subtotal < 200:
+            shipping = 25
+        else:
+            shipping = 0
+            tax *= 0.05
+
         if inv.country == "TH":
             tax *= 0.07
         elif inv.country == "JP":
             tax *= 0.10
         elif inv.country == "US":
             tax *= 0.08
-        else:
-            tax *= 0.05
 
         total = subtotal + shipping + fragile_fee + tax - discount
         if total < 0:
