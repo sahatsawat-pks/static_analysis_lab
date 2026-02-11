@@ -49,74 +49,63 @@ class InvoiceService:
         return problems
 
     def compute_total(self, inv: Invoice) -> Tuple[float, List[str]]:
-        warnings: List[str] = []
         problems = self._validate(inv)
         if problems:
             raise ValueError("; ".join(problems))
 
-        subtotal = 0.0
-        fragile_fee = 0.0
-        for it in inv.items:
-            line = it.unit_price * it.qty
-            subtotal += line
-            if it.fragile:
-                fragile_fee += 5.0 * it.qty
+        subtotal, fragile_fee = self._calculate_base_costs(inv.items)
+        discount, warnings = self._calculate_discount(inv, subtotal)
+        shipping = self._calculate_shipping(inv.country, subtotal)
+        tax = self._calculate_tax(inv.country, subtotal - discount)
 
-        shipping = 0.0
-        if inv.country == "TH":
-            if subtotal < 500:
-                shipping = 60
-            else:
-                shipping = 0
-        elif inv.country == "JP":
-            if subtotal < 4000:
-                shipping = 600
-            else:
-                shipping = 0
-        elif inv.country == "US":
-            if subtotal < 100:
-                shipping = 15
-            elif subtotal < 300:
-                shipping = 8
-            else:
-                shipping = 0
-        else:
-            if subtotal < 200:
-                shipping = 25
-            else:
-                shipping = 0
-
-        discount = 0.0
-        if inv.membership == "gold":
-            discount += subtotal * 0.03
-        elif inv.membership == "platinum":
-            discount += subtotal * 0.05
-        else:
-            if subtotal > 3000:
-                discount += 20
-
-        if inv.coupon is not None and inv.coupon.strip() != "":
-            code = inv.coupon.strip()
-            if code in self._coupon_rate:
-                discount += subtotal * self._coupon_rate[code]
-            else:
-                warnings.append("Unknown coupon")
-
-        tax = 0.0
-        if inv.country == "TH":
-            tax = (subtotal - discount) * 0.07
-        elif inv.country == "JP":
-            tax = (subtotal - discount) * 0.10
-        elif inv.country == "US":
-            tax = (subtotal - discount) * 0.08
-        else:
-            tax = (subtotal - discount) * 0.05
-
-        total = subtotal + shipping + fragile_fee + tax - discount
-        if total < 0:
-            total = 0
+        total = max(0.0, subtotal + shipping + fragile_fee + tax - discount)
 
         if subtotal > 10000 and inv.membership not in ("gold", "platinum"):
             warnings.append("Consider membership upgrade")
 
         return total, warnings
+
+    def _calculate_base_costs(self, items: List[LineItem]) -> Tuple[float, float]:
+        subtotal = sum(it.unit_price * it.qty for it in items)
+        fragile_fee = sum(5.0 * it.qty for it in items if it.fragile)
+        return subtotal, fragile_fee
+
+    def _calculate_shipping(self, country: str, subtotal: float) -> float:
+        rates = {
+            "TH": (500, 60),
+            "JP": (4000, 600),
+            "US": (0, 0),
+            "DEFAULT": (200, 25)
+        }
+        
+        if country == "US":
+            if subtotal < 100: return 15
+            return 8 if subtotal < 300 else 0
+            
+        threshold, fee = rates.get(country, rates["DEFAULT"])
+        return fee if subtotal < threshold else 0
+
+    def _calculate_discount(self, inv: Invoice, subtotal: float) -> Tuple[float, List[str]]:
+        discount = 0.0
+        warnings = []
+
+        tier_rates = {"gold": 0.03, "platinum": 0.05}
+        if inv.membership in tier_rates:
+            discount += subtotal * tier_rates[inv.membership]
+        elif subtotal > 3000:
+            discount += 20
+
+        if inv.coupon and inv.coupon.strip():
+            code = inv.coupon.strip()
+            rate = self._coupon_rate.get(code)
+            if rate is not None:
+                discount += subtotal * rate
+            else:
+                warnings.append("Unknown coupon")
+                
+        return discount, warnings
+
+    def _calculate_tax(self, country: str, taxable_amount: float) -> float:
+        tax_rates = {"TH": 0.07, "JP": 0.10, "US": 0.08}
+        rate = tax_rates.get(country, 0.05)
+        return taxable_amount * rate
