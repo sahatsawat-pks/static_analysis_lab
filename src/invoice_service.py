@@ -66,20 +66,14 @@ class InvoiceService:
         if inv.country == "TH":
             if subtotal < 500:
                 shipping = 60
-            else:
-                shipping = 0
         elif inv.country == "JP":
             if subtotal < 4000:
                 shipping = 600
-            else:
-                shipping = 0
         elif inv.country == "US":
             if subtotal < 100:
                 shipping = 15
             elif subtotal < 300:
                 shipping = 8
-            else:
-                shipping = 0
         else:
             if subtotal < 200:
                 shipping = 25
@@ -102,15 +96,15 @@ class InvoiceService:
             else:
                 warnings.append("Unknown coupon")
 
-        tax = 0.0
+        tax = (subtotal - discount)
         if inv.country == "TH":
-            tax = (subtotal - discount) * 0.07
+            tax *= 0.07
         elif inv.country == "JP":
-            tax = (subtotal - discount) * 0.10
+            tax *= 0.10
         elif inv.country == "US":
-            tax = (subtotal - discount) * 0.08
+            tax *= 0.08
         else:
-            tax = (subtotal - discount) * 0.05
+            tax *= 0.05
 
         total = subtotal + shipping + fragile_fee + tax - discount
         if total < 0:
