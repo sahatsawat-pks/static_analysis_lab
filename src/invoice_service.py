@@ -54,43 +54,67 @@ class InvoiceService:
         if problems:
             raise ValueError("; ".join(problems))
 
-        # 1. Calculate base metrics using generator expressions
-        subtotal = sum(it.unit_price * it.qty for it in inv.items)
-        fragile_fee = sum(5.0 * it.qty for it in inv.items if it.fragile)
+        subtotal = 0.0
+        fragile_fee = 0.0
+        for it in inv.items:
+            line = it.unit_price * it.qty
+            subtotal += line
+            if it.fragile:
+                fragile_fee += 5.0 * it.qty
 
-        # 2. Shipping Logic (Mapping: {Country: (Threshold, Fee)})
-        shipping_rules = {
-            "TH": (500, 60),
-            "JP": (4000, 600),
-            "US": (100, 15) if subtotal < 100 else (300, 8),
-            "DEFAULT": (200, 25)
-        }
-        
-        threshold, fee = shipping_rules.get(inv.country, shipping_rules["DEFAULT"])
-        shipping = fee if subtotal < threshold else 0
-
-        # 3. Discount Logic
-        membership_rates = {"gold": 0.03, "platinum": 0.05}
-        if inv.membership in membership_rates:
-            discount = subtotal * membership_rates[inv.membership]
+        shipping = 0.0
+        if inv.country == "TH":
+            if subtotal < 500:
+                shipping = 60
+            else:
+                shipping = 0
+        elif inv.country == "JP":
+            if subtotal < 4000:
+                shipping = 600
+            else:
+                shipping = 0
+        elif inv.country == "US":
+            if subtotal < 100:
+                shipping = 15
+            elif subtotal < 300:
+                shipping = 8
+            else:
+                shipping = 0
         else:
-            discount = 20.0 if subtotal > 3000 else 0.0
+            if subtotal < 200:
+                shipping = 25
+            else:
+                shipping = 0
 
-        # Coupon Logic
-        coupon_code = (inv.coupon or "").strip()
-        if coupon_code:
-            if coupon_code in self._coupon_rate:
-                discount += subtotal * self._coupon_rate[coupon_code]
+        discount = 0.0
+        if inv.membership == "gold":
+            discount += subtotal * 0.03
+        elif inv.membership == "platinum":
+            discount += subtotal * 0.05
+        else:
+            if subtotal > 3000:
+                discount += 20
+
+        if inv.coupon is not None and inv.coupon.strip() != "":
+            code = inv.coupon.strip()
+            if code in self._coupon_rate:
+                discount += subtotal * self._coupon_rate[code]
             else:
                 warnings.append("Unknown coupon")
 
-        # 4. Tax Logic (Mapping: {Country: Rate})
-        tax_rates = {"TH": 0.07, "JP": 0.10, "US": 0.08, "DEFAULT": 0.05}
-        rate = tax_rates.get(inv.country, tax_rates["DEFAULT"])
-        tax = (subtotal - discount) * rate
+        tax = 0.0
+        if inv.country == "TH":
+            tax = (subtotal - discount) * 0.07
+        elif inv.country == "JP":
+            tax = (subtotal - discount) * 0.10
+        elif inv.country == "US":
+            tax = (subtotal - discount) * 0.08
+        else:
+            tax = (subtotal - discount) * 0.05
 
-        # 5. Final Calculation
-        total = max(0.0, subtotal + shipping + fragile_fee + tax - discount)
+        total = subtotal + shipping + fragile_fee + tax - discount
+        if total < 0:
+            total = 0
 
         if subtotal > 10000 and inv.membership not in ("gold", "platinum"):
             warnings.append("Consider membership upgrade")
